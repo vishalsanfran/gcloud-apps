@@ -1,13 +1,52 @@
+# Notes Application
 import webapp2
 import os
 import jinja2
 
 from google.appengine.api import users
-from models import Note
+from google.appengine.ext import ndb
+from models import Note, CheckListItem
 
-jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
+jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
 
 class MainHandler(webapp2.RequestHandler):
+
+    def _render_template(self, template_name, context=None):
+        if context is None:
+            context = {}
+
+        user = users.get_current_user()
+        ancestor_key = ndb.Key("User", user.nickname())
+        qry = Note.owner_query(ancestor_key)
+        context['notes'] = qry.fetch()
+
+        # Boiler plate jinja2 code
+        template = jinja_env.get_template(template_name)
+        return template.render(context)
+
+    # Transaction to create a note with checklist items
+    @ndb.transactional
+    def _create_note(self, user):
+
+        note = Note(parent=ndb.Key("User", user.nickname()),
+                    title=self.request.get('title'),
+                    content=self.request.get('content'))
+        note.put()
+
+        # Retrieve csv representing checklist items
+        item_titles = self.request.get('checklist_items').split(',')
+
+        for item_title in item_titles:
+            # create a checklist instance
+            item = CheckListItem(parent = note.key, title = item_title)
+            # store each checklist
+            item.put()
+            # after storing it, we can access the key to append it to the note
+            note.checklist_items.append(item.key)
+
+        # update the note entity with the checklist items
+        note.put()  
 
     def get(self):
 
@@ -20,9 +59,8 @@ class MainHandler(webapp2.RequestHandler):
                 'logout_url': logout_url,
             }
 
-            #template = jinja_env.get_template('main.html')
-            #self.response.out.write(template.render(template_context))
-            self.response.out.write(self._render_template('main.html', template_context))
+            self.response.out.write(
+                self._render_template('main.html', template_context))
         else:
             login_url = users.create_login_url(self.request.uri)
             self.redirect(login_url)
@@ -31,10 +69,9 @@ class MainHandler(webapp2.RequestHandler):
 
         user = users.get_current_user()
         if user is None:
-        	self.error(401)
+            self.error(401)
         
-        note = Note(title=self.request.get('title'), content=self.request.get('content'))
-        note.put()
+        self._create_note(user)
 
         logout_url = users.create_logout_url(self.request.uri)
 
@@ -43,15 +80,7 @@ class MainHandler(webapp2.RequestHandler):
             'logout_url': logout_url,
         }
 
-        #template = jinja_env.get_template('main.html')
-        #self.response.out.write(template.render(template_context))
-        self.response.out.write(self._render_template('main.html', template_context))
-
-    def _render_template(self, template_name, context=None):
-    	if context is None:
-    		context = {}
-        template = jinja_env.get_template(template_name)
-        return template.render(context)
-
+        self.response.out.write(
+            self._render_template('main.html', template_context))
 
 app = webapp2.WSGIApplication([('/', MainHandler)], debug=True)
