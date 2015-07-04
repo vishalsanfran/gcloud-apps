@@ -9,6 +9,7 @@ class Note(ndb.Model):
     #stores key values CheckListItem, 
     #repeated=True means property can hold more than one value
     checklist_items = ndb.KeyProperty("CheckListItem", repeated=True)
+    files = ndb.StringProperty(repeated = True)
 
     @classmethod
     def owner_query(cls, parent_key):

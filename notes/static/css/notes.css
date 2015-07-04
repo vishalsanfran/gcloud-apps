@@ -84,3 +84,13 @@ div.note-content {
 .checked {
     text-decoration: line-through;
 }
+
+div.note > ul > li.file {
+    border: 0;
+    background: #0070B3;
+}
+
+li.file > a {
+    color: white;
+    text-decoration: none;
+}

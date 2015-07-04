@@ -1,14 +1,38 @@
 # Notes Application
+from google.appengine.api import users
+from google.appengine.ext import ndb
+from google.appengine.api import app_identity
+from models import Note, CheckListItem
+
 import webapp2
 import os
 import jinja2
-
-from google.appengine.api import users
-from google.appengine.ext import ndb
-from models import Note, CheckListItem
+import cloudstorage
+import mimetypes
 
 jinja_env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
+
+class MediaHandler(webapp2.RequestHandler):
+
+    def get(self, file_name):
+        user = users.get_current_user()
+        bucket_name = app_identity.get_default_gcs_bucket_name
+        content_t = mimetypes.guess_type(file_name)[0]
+
+        real_path = os.path.join('/', bucket_name,
+                user.user_id(), file_name)
+
+        try:
+            # if file found GC Storage 
+            with cloudstorage.open(real_path, 'r') as f:
+                self.response.headers.add_header('Content-type',
+                    content_t)
+                self.response.out.write(f.read())
+        except:
+            cloudstorage.errors.NotFoundError:
+                self.abort(404)
+
 
 class MainHandler(webapp2.RequestHandler):
 
@@ -27,7 +51,7 @@ class MainHandler(webapp2.RequestHandler):
 
     # Transaction to create a note with checklist items
     @ndb.transactional
-    def _create_note(self, user):
+    def _create_note(self, user, file_name):
 
         note = Note(parent=ndb.Key("User", user.nickname()),
                     title=self.request.get('title'),
@@ -44,6 +68,8 @@ class MainHandler(webapp2.RequestHandler):
             item.put()
             # after storing it, we can access the key to append it to the note
             note.checklist_items.append(item.key)
+        if file_name:
+            note.files.append(file_name)
 
         # update the note entity with the checklist items
         note.put()  
@@ -71,7 +97,26 @@ class MainHandler(webapp2.RequestHandler):
         if user is None:
             self.error(401)
         
-        self._create_note(user)
+        # create a cloud storage bucket
+        # get the default bucket
+        bucket_name = app_identity.get_default_gcs_bucket_name()
+        # get an instance of FileStorage class
+        uploaded_file = self.request.POST.get('uploaded_file')
+
+        file_name = getattr(uploaded_file, 'filename')
+        file_content = getattr(uploaded_file, 'file', None)
+
+        real_path = ''
+        if file_name and file_content:
+            content_t = mimetypes.guess_type(file_name)[0]
+            real_path = os.path.join('/', bucket_name,
+                user.user_id(), file_name)
+
+        with cloudstorage.open(real_path, 'w', content_type = content_t) as f:
+            f.write(file_content.read())
+
+        # create a note
+        self._create_note(user, file_name)
 
         logout_url = users.create_logout_url(self.request.uri)
 
@@ -83,4 +128,7 @@ class MainHandler(webapp2.RequestHandler):
         self.response.out.write(
             self._render_template('main.html', template_context))
 
-app = webapp2.WSGIApplication([('/', MainHandler)], debug=True)
+# WSGI application constructor
+app = webapp2.WSGIApplication([('/', MainHandler), 
+    (r'/media/(?P<file_name>[\w.]{0,256})', MediaHandler)],
+    debug=True)
