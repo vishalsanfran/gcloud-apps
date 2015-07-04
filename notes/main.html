@@ -8,18 +8,13 @@
 <body>
   <div class="container">
 
-    <h1>Welcome to Notes!</h1>
+    <ul class="menu">
+      <li>Hello, <b>{{ user }}</b></li>
+      <li><a href="{{ logout_url }}">Logout</a></li>
+      <li><a href="/shrink">Shrink images</a></li>
+    </ul>
 
-    <p>
-      Hello, <b>{{user}}</b> - <a href="{{logout_url}}">Logout</a>
-    </p>
-	{% if note_title %}
-	<p>Title: {{note_title}}</p>
-	<p>Content: {{note_content}}</p>
-	{% endif %}
-
-	<h4>Add a new note</h4>
-	<form action="" method="post">
+    <form action="" method="post" enctype="multipart/form-data">
 	  <div class="form-group">
 	    <label for="title">Title:</label>
 	    <input type="text" id="title" name="title" />
@@ -40,6 +35,26 @@
 	      <button type="submit">Save note</button>
 	  </div>
 	</form>
+
+    {% if note.files %}
+    <ul>
+      {% for file in note.files %}
+      {% if file.get().thumbnail_url %}
+      <li class="file">
+        <a href="{{ file.get().url }}">
+          <img src="{{ file.get().thumbnail_url }}">
+        </a>
+      </li>
+      {% else %}
+      <li class="file">
+        <a href="{{ file.get().url }}">
+          {{ file.get().name }}
+        </a>
+      </li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+    {% endif %}
 
 	{% for note in notes %}
 	<div class="note">

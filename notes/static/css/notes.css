@@ -94,3 +94,13 @@ li.file > a {
     color: white;
     text-decoration: none;
 }
+
+ul.menu > li {
+    display: inline;
+    padding: 5px;
+    border-left: 1px solid;
+}
+
+ul.menu > li > a {
+    text-decoration: none;
+}
