@@ -25,3 +25,6 @@ class NoteFile(ndb.Model):
 class CheckListItem(ndb.Model):
     title = ndb.StringProperty()
     checked = ndb.BooleanProperty(default=False)
+
+class UserLoader(ndb.Model):
+    user = ndb.UserProperty()

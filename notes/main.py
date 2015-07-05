@@ -5,13 +5,17 @@ from google.appengine.api import app_identity
 from google.appengine.api import images
 from google.appengine.ext import blobstore
 from google.appengine.api import taskqueue
-from models import Note, CheckListItem
+from google.appengine.api import mail
+from google.appengine.ext.webapp import mail_handlers
+
+from models import Note, CheckListItem, NoteFile
 
 import webapp2
 import os
 import jinja2
 import cloudstorage
 import mimetypes
+import re
 
 jinja_env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
@@ -30,6 +34,10 @@ class MediaHandler(webapp2.RequestHandler):
 
     def get(self, file_name):
         user = users.get_current_user()
+        if user is None:
+            login_url = users.create_login_url(self.request.uri)
+            return self.redirect(login_url)
+
         bucket_name = app_identity.get_default_gcs_bucket_name
         content_t = mimetypes.guess_type(file_name)[0]
 
@@ -42,9 +50,8 @@ class MediaHandler(webapp2.RequestHandler):
                 self.response.headers.add_header('Content-type',
                     content_t)
                 self.response.out.write(f.read())
-        except:
-            cloudstorage.errors.NotFoundError:
-                self.abort(404)
+        except cloudstorage.errors.NotFoundError:
+            self.abort(404)
 
 class ShrinkHandler(webapp2.RequestHandler):
     def _shrink_note(self, note):
@@ -71,11 +78,17 @@ class ShrinkHandler(webapp2.RequestHandler):
         user_email = self.request.get('user_email')
         user = users.User(user_email)
 
-        ancestor_key = ndb.Key("User", user_nickname())
+        ancestor_key = ndb.Key("User", user.nickname())
         notes = Note.owner_query(ancestor_key).fetch()
 
         for note in notes:
             self._shrink_note(note)
+
+        # compose, send a mail
+        sender_address = "Notes team <support@pacific-castle-673.appspot.com>"
+        subject = "Shrink complete"
+        body = "All images attached to your notes have been shrunk"
+        mail.send_mail(sender_address, user_email, subject, body)
 
     def get(self):
         user = users.get_current_user()
@@ -95,7 +108,7 @@ class ShrinkCronJob(ShrinkHandler):
 
     def get(self):
         # otherwise task queue request is not received
-        if not 'X-Appengine-Cron' in self.request.headers:
+        if 'X-Appengine-Cron' not in self.request.headers:
             self.error(403) # Forbidden
 
         # load all Note entities from datastore
@@ -143,7 +156,7 @@ class MainHandler(webapp2.RequestHandler):
 
     # Transaction to create a note with checklist items
     @ndb.transactional
-    def _create_note(self, user, file_name):
+    def _create_note(self, user, file_name, file_path):
 
         note = Note(parent=ndb.Key("User", user.nickname()),
                     title=self.request.get('title'),
@@ -154,6 +167,8 @@ class MainHandler(webapp2.RequestHandler):
         item_titles = self.request.get('checklist_items').split(',')
 
         for item_title in item_titles:
+            if not item_title:
+                continue
             # create a checklist instance
             item = CheckListItem(parent = note.key, title = item_title)
             # store each checklist
@@ -170,8 +185,8 @@ class MainHandler(webapp2.RequestHandler):
             f.put()
             note.files.append(f.key)
 
-        # update the note entity with the checklist items
-        note.put()  
+            # update the note entity with the checklist items
+            note.put()  
 
     def get(self):
 
@@ -202,7 +217,7 @@ class MainHandler(webapp2.RequestHandler):
         # get an instance of FileStorage class
         uploaded_file = self.request.POST.get('uploaded_file')
 
-        file_name = getattr(uploaded_file, 'filename')
+        file_name = getattr(uploaded_file, 'filename', None)
         file_content = getattr(uploaded_file, 'file', None)
 
         real_path = ''
@@ -211,11 +226,11 @@ class MainHandler(webapp2.RequestHandler):
             real_path = os.path.join('/', bucket_name,
                 user.user_id(), file_name)
 
-        #changing the default ACL, to make the files public
-        with cloudstorage.open(real_path, 'w',
-            content_type = content_t,
-            options = {'x-goog-acl': 'public-read'}) as f:
-            f.write(file_content.read())
+            #changing the default ACL, to make the files public
+            with cloudstorage.open(real_path, 'w',
+                content_type = content_t,
+                options = {'x-goog-acl': 'public-read'}) as f:
+                f.write(file_content.read())
 
         # create a note
         self._create_note(user, file_name, real_path)
@@ -230,6 +245,71 @@ class MainHandler(webapp2.RequestHandler):
         self.response.out.write(
             self._render_template('main.html', template_context))
 
+class CreateNoteHandler(mail_handlers.InboundMailHandler):
+
+    def _reload_user(self, user_instance):
+        key = UserLoader(user=user_instance).put()
+        key.delete(use_datastore=False)
+        u_loader = UserLoader.query(
+            UserLoader.user == user_instance).get()
+        return u_loader.user
+
+    def receive(self, mail_message):
+        email_pattern = re.compile(
+            r'([\w\-\.]+@(\w[\w\-]+\.)+[\w\-]+)')
+        match = email_pattern.findall(mail_message.sender)
+
+        email_addr = match[0][0] if match else ''
+
+        try:
+            user = users.User(email_addr)
+            user = self._reload_user(user)
+        except users.UserNotFoundError:
+            return self.error(403)
+
+        title = mail_message.subject
+        content = ''
+        for content_t, body in mail_message.bodies('text/plain'):
+            content += body.decode()
+
+        attachments = getattr(mail_message, 'attachments', None)
+
+        self._create_note(user, title, content, attachments)
+
+    @ndb.transactional
+    def _create_note(self, user, title, content, attachments):
+
+        note = Note(parent=ndb.Key("User", user.nickname()),
+                    title=title,
+                    content=content)
+        note.put()
+
+        if attachments:
+            bucket_name = app_identity.get_default_gcs_bucket_name()
+            for file_name, file_content in attachments:
+                content_t = mimetypes.guess_type(file_name)[0]
+                real_path = os.path.join('/', bucket_name, user.user_id(), file_name)
+
+                with cloudstorage.open(real_path, 'w', content_type=content_t,
+                                       options={'x-goog-acl': 'public-read'}) as f:
+                    f.write(file_content.decode())
+
+                key = blobstore.create_gs_key('/gs' + real_path)
+                try:
+                    url = images.get_serving_url(key, size=0)
+                    thumbnail_url = images.get_serving_url(key, size=150, crop=True)
+                except images.TransformationError, images.NotImageError:
+                    url = "http://storage.googleapis.com{}".format(real_path)
+                    thumbnail_url = None
+
+                f = NoteFile(parent=note.key, name=file_name,
+                             url=url, thumbnail_url=thumbnail_url,
+                             full_path=real_path)
+                f.put()
+                note.files.append(f.key)
+
+            note.put()
+
 # WSGI application constructor
 # Routing - URL maps to a handler
 app = webapp2.WSGIApplication([
@@ -237,4 +317,5 @@ app = webapp2.WSGIApplication([
     (r'/media/(?P<file_name>[\w.]{0,256})', MediaHandler),
     (r'/shrink', ShrinkHandler),
     (r'/shrink_all', ShrinkCronJob),
+    (r'/_ah/mail/create@book-123456\.appspotmail\.com', CreateNoteHandler),
 ], debug=True)

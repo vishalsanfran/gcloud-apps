@@ -7,7 +7,7 @@
 </head>
 <body>
   <div class="container">
-
+	<h1>Welcome to Notes!</h1>
     <ul class="menu">
       <li>Hello, <b>{{ user }}</b></li>
       <li><a href="{{ logout_url }}">Logout</a></li>
@@ -15,6 +15,7 @@
     </ul>
 
     <form action="" method="post" enctype="multipart/form-data">
+      <legend>Add a new note</legend>
 	  <div class="form-group">
 	    <label for="title">Title:</label>
 	    <input type="text" id="title" name="title" />
@@ -36,41 +37,36 @@
 	  </div>
 	</form>
 
-    {% if note.files %}
-    <ul>
-      {% for file in note.files %}
-      {% if file.get().thumbnail_url %}
-      <li class="file">
-        <a href="{{ file.get().url }}">
-          <img src="{{ file.get().thumbnail_url }}">
-        </a>
-      </li>
-      {% else %}
-      <li class="file">
-        <a href="{{ file.get().url }}">
-          {{ file.get().name }}
-        </a>
-      </li>
+    {% for note in notes %}
+    <div class="note">
+      <h4>{{ note.title }}</h4>
+      <p class="note-content">{{ note.content }}</p>
+      {% if note.files %}
+      <ul>
+        {% for file in note.files %}
+        {% if file.get().thumbnail_url %}
+        <li class="file">
+          <a href="{{ file.get().url }}">
+            <img src="{{ file.get().thumbnail_url }}">
+          </a>
+        </li>
+        {% else %}
+        <li class="file">
+          <a href="{{ file.get().url }}">{{ file.get().name }}</a>
+        </li>
+        {% endif %}
+        {% endfor %}
+      </ul>
       {% endif %}
-      {% endfor %}
-    </ul>
-    {% endif %}
-
-	{% for note in notes %}
-	<div class="note">
-		<h4> {{ note.title }} </h4>
-		<p class="note-content"> {{ note.content }} </p>
-	  {% if note.checklist_items %}
-	  <ul>
-	    {% for item in note.checklist_items %}
-	    <li class="{%if item.get().checked%}checked{%endif%}">
-	        {{item.get().title}}
-	    </li>
-	    {% endfor %}
-	  </ul>
-	  {% endif %}
-	</div>
-	{% endfor %}
+      {% if note.checklist_items %}
+      <ul>
+        {% for item in note.checklist_items %}
+        <li class="{%if item.get().checked%}checked{%endif%}">{{item.get().title}}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
 
   </div>
 </body>

@@ -15,10 +15,12 @@ form {
     padding-bottom: 0.5em;
     margin-bottom: 30px;
 }
+
 h4,legend {
     margin-bottom: 10px;
     font-size: 21px;
     font-weight: 400;
+    width: 100%;
 }
 
 div.form-group {
@@ -76,14 +78,6 @@ div.note > ul > li {
     border-bottom: 2px solid #e7f2f0;
     text-align: left;
 }
-div.note-content {
-    text-align: left;
-    padding: 0.5em;
-}
-
-.checked {
-    text-decoration: line-through;
-}
 
 div.note > ul > li.file {
     border: 0;
@@ -93,6 +87,15 @@ div.note > ul > li.file {
 li.file > a {
     color: white;
     text-decoration: none;
+}
+
+p.note-content {
+    text-align: left;
+    padding: 0.5em;
+}
+
+.checked {
+    text-decoration: line-through;
 }
 
 ul.menu > li {
