@@ -4,6 +4,7 @@ from google.appengine.ext import ndb
 from google.appengine.api import app_identity
 from google.appengine.api import images
 from google.appengine.ext import blobstore
+from google.appengine.api import taskqueue
 from models import Note, CheckListItem
 
 import webapp2
@@ -63,12 +64,25 @@ class ShrinkHandler(webapp2.RequestHandler):
             except images.NotImageError:
                 pass
 
+    def post(self):
+        # otherwise task queue request is not received
+        if not 'X-Appengine-Taskname' in self.request.headers:
+            self.error(403) # Forbidden
+        user_email = self.request.get('user_email')
+        user = users.User(user_email)
+
+        ancestor_key = ndb.Key("User", user_nickname())
+        notes = Note.owner_query(ancestor_key).fetch()
+
+        for note in notes:
+        	self._shrink_note(note)
+
     def get(self):
         user = users.get_current_user()
         if user is None:
             login_url = users.create_login_url(self.request.uri)
             return self.redirect(login_url)
-
+        # added with the task queue API
         taskqueue.add(url='/shrink',
                       params={'user_email': user.email()})
         self.response.write('Task added to the queue.')
