@@ -75,7 +75,7 @@ class ShrinkHandler(webapp2.RequestHandler):
         notes = Note.owner_query(ancestor_key).fetch()
 
         for note in notes:
-        	self._shrink_note(note)
+            self._shrink_note(note)
 
     def get(self):
         user = users.get_current_user()
@@ -87,6 +87,22 @@ class ShrinkHandler(webapp2.RequestHandler):
                       params={'user_email': user.email()})
         self.response.write('Task added to the queue.')
 
+class ShrinkCronJob(ShrinkHandler):
+    #cron only performs get, override post
+    def post(self):
+        # 405 method not allowed
+        self.abort(405, headers=[('Allow', 'GET')])
+
+    def get(self):
+        # otherwise task queue request is not received
+        if not 'X-Appengine-Cron' in self.request.headers:
+            self.error(403) # Forbidden
+
+        # load all Note entities from datastore
+        notes = Note.query().fetch()
+
+        for note in notes:
+            self._shrink_note(note)
 
 class MainHandler(webapp2.RequestHandler):
 
@@ -215,8 +231,10 @@ class MainHandler(webapp2.RequestHandler):
             self._render_template('main.html', template_context))
 
 # WSGI application constructor
+# Routing - URL maps to a handler
 app = webapp2.WSGIApplication([
     (r'/', MainHandler),
     (r'/media/(?P<file_name>[\w.]{0,256})', MediaHandler),
     (r'/shrink', ShrinkHandler),
+    (r'/shrink_all', ShrinkCronJob),
 ], debug=True)
